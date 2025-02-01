@@ -1,0 +1,150 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+
+"""
+城市：**
+作品名称：天气推送脚本（deepseek修改_小白友好版）
+功能：每日自动获取天气信息并通过微信推送
+原作者：github@wd210010（修改版）
+"""
+
+import os
+import requests
+import json
+
+# ------------------- 配置区（需要用户修改的部分） -------------------
+# [重要] 需要先配置这两个环境变量再运行脚本！
+
+# 1. 城市代码（从下方链接查询，例如北京101010100）
+# 查询地址：https://fastly.jsdelivr.net/gh/Oreomeow/checkinpanel@master/city.json
+CITY_CODE = os.getenv("city_code")
+
+# 2. 微信推送Token（开发文档&注册地址：https://wxpusher.zjiecode.com/admin/app/list）
+PUSH_TOKEN = os.getenv("WXPUSHER_APP_TOKEN")
+
+# ------------------- 函数定义区 -------------------
+
+def get_weather(city_code):
+    """
+    获取天气数据
+    参数：城市代码（字符串）
+    返回：解析后的天气数据字典 或 None（失败时）
+    """
+    try:
+        # 构建请求URL
+        url = f"http://t.weather.itboy.net/api/weather/city/{city_code}"
+        
+        # 发送请求（设置3秒超时防止卡死）
+        response = requests.get(url, timeout=3)
+        response.raise_for_status()  # 自动检测HTTP错误
+        
+        # 解析JSON数据
+        data = json.loads(response.text)
+        
+        # 检查必要字段是否存在
+        if 'data' not in data or 'cityInfo' not in data:
+            print("错误：天气API返回的数据格式异常")
+            return None
+            
+        return data
+        
+    except requests.exceptions.RequestException as e:
+        print(f"网络请求失败：{str(e)}")
+    except json.JSONDecodeError:
+        print("错误：天气API返回的数据不是有效的JSON格式")
+    return None
+
+def format_weather(data):
+    """
+    格式化天气信息
+    参数：天气数据字典
+    返回：格式化后的字符串
+    """
+    try:
+        # 今日天气信息
+        today = data['data']['forecast'][0]
+        msg = (
+            f"🌟 {data['cityInfo']['city']} 天气预报\n"
+            f"📅 日期：{today['ymd']} {today['week']}\n"
+            f"⛅ 天气：{today['type']}\n"
+            f"🌡️ 温度：{today['low']} ~ {today['high']}\n"
+            f"💧 湿度：{data['data']['shidu']}\n"
+            f"🍃 空气质量：{data['data']['quality']}\n"
+            f"🌀 风力：{today['fx']} {today['fl']}\n"
+            f"📢 温馨提示：{today['notice']}\n"
+            f"🕒 更新时间：{data['time']}"
+        )
+
+        # 未来七天预报
+        seven_days = []
+        for day in data['data']['forecast']:
+            seven_days.append(
+                f"{day['ymd']} {day['week']} {day['type']} "
+                f"{day['low']}~{day['high']}"
+            )
+            
+        return msg + "\n\n未来七天预报：\n" + "\n".join(seven_days)
+        
+    except KeyError as e:
+        print(f"错误：天气数据缺少必要字段 - {str(e)}")
+        return None
+
+def push_message(content):
+    """
+    发送微信推送
+    参数：要发送的内容（字符串）
+    """
+    if not PUSH_TOKEN:
+        print("错误：未配置推送Token！")
+        return
+
+    api_url = "https://wxpusher.zjiecode.com/api/send/message"
+    headers = {'Content-Type': 'application/json'}
+    
+    payload = {
+        "appToken": PUSH_TOKEN,
+        "title": "每日天气推送",
+        "content": content.replace('\n', '<br>'),
+        "template": "txt",
+        "topicIds": [30***]     #使用你自己的topicIDs或者参考开发文档"uids": [UID_C.********]
+    }
+
+    try:
+        response = requests.post(api_url, json=payload, headers=headers, timeout=5)
+        result = response.json()
+        if result['code'] == 1000:
+            print("✅ 推送成功！")
+        else:
+            print(f"推送失败：{result.get('msg', '未知错误')}")
+    except Exception as e:
+        print(f"推送请求失败：{str(e)}")
+
+# ------------------- 主程序 -------------------
+if __name__ == "__main__":
+    # 检查环境变量
+    if not CITY_CODE:
+        print("错误：请先设置环境变量 city_code")
+        exit(1)
+    if not PUSH_TOKEN:
+        print("警告：未配置推送Token，仅测试天气获取")
+
+    # 获取天气数据
+    weather_data = get_weather(CITY_CODE)
+    if not weather_data:
+        print("获取天气数据失败，请检查城市代码")
+        exit(1)
+
+    # 格式化信息
+    formatted_msg = format_weather(weather_data)
+    if not formatted_msg:
+        print("格式化天气数据失败")
+        exit(1)
+
+    # 打印预览（测试用）
+    print("="*30 + "\n预览内容：\n" + formatted_msg + "\n" + "="*30)
+
+    # 发送推送
+    if PUSH_TOKEN:
+        push_message(formatted_msg)
+    else:
+        print("（未发送推送，因未配置Token）")

@@ -1,0 +1,95 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+# -------------------------------
+# @Author : github@wd210010 
+# @Time : 2023/2/27 13:23
+# -------------------------------
+# cron "30 0 * * *" script-path=stl_sign.py,tag=STLXZ签到
+# 使用WxPusher推送需配置两个环境变量：
+# 1. WXPUSHER_TOKEN (从wxpusher.zjiecode.com获取)
+# 2. WXPUSHER_TOPIC_ID (消息接收主题ID)
+
+import requests
+import json
+import os
+
+# ------------------- 配置区 -------------------
+# 从环境变量读取配置
+STL_COOKIE = os.getenv("stl_cookie")      # STLXZ的Cookie
+WXPUSHER_TOKEN = os.getenv("WXPUSHER_APP_TOKEN")  # WxPusher的AppToken
+TOPIC_ID = os.getenv("WXPUSHER_TOPIC_IDS")  # 消息接收主题ID(纯数字)
+
+# ------------------- 推送函数 -------------------
+def wxpusher_push(content):
+    """
+    使用WxPusher发送消息
+    参数：content (要推送的字符串内容)
+    """
+    if not all([WXPUSHER_TOKEN, TOPIC_ID]):
+        print("推送失败：未配置WxPusher参数！")
+        return
+
+    api_url = "https://wxpusher.zjiecode.com/api/send/message"
+    headers = {'Content-Type': 'application/json'}
+    
+    # 注意：topicIds必须是整数列表格式
+    payload = {
+        "appToken": WXPUSHER_TOKEN,
+        "content": content.replace('\n', '<br>'),
+        "topicIds": [int(TOPIC_ID)],  # 转换为整数列表
+        "contentType": 2,             # 2表示HTML格式
+        "verifyPay": False            # 不需要付费验证
+    }
+
+    try:
+        resp = requests.post(api_url, json=payload, headers=headers, timeout=10)
+        result = resp.json()
+        if result.get("code") == 1000:
+            print("✅ WxPusher推送成功")
+        else:
+            print(f"推送失败：{result.get('msg')}")
+    except Exception as e:
+        print(f"推送请求异常：{str(e)}")
+
+# ------------------- 主逻辑 -------------------
+def main():
+    # 请求头
+    headers = {
+        'cookie': STL_COOKIE,
+        'user-agent': 'Mozilla/5.0 (Windows NT 6.3; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.198 Safari/537.36',
+        'origin': 'https://www.stlxz.com',
+        'referer': 'https://www.stlxz.com/wl/wzzjc/12021.html'
+    }
+
+    # 请求数据
+    data = {'action': 'user_checkin'}
+    url = 'https://www.stlxz.com/wp-admin/admin-ajax.php?action=checkin_details_modal'
+
+    try:
+        # 发送签到请求
+        response = requests.post(url=url, headers=headers, data=data, timeout=10)
+        response.raise_for_status()  # 检查HTTP状态码
+
+        # 解析结果
+        result = json.loads(response.text)['msg']
+        print(f"签到结果：{result}")
+
+        # 推送结果
+        message = (
+            "🏷️ STLXZ签到结果\n"
+            f"📅 {result}\n"
+            "⏰ 数据更新时间：每日00:30"
+        )
+        wxpusher_push(message)
+
+    except requests.exceptions.RequestException as e:
+        print(f"网络请求失败：{str(e)}")
+    except json.JSONDecodeError:
+        print("错误：返回数据不是有效的JSON格式")
+    except KeyError:
+        print("错误：返回数据缺少'msg'字段")
+    except Exception as e:
+        print(f"未知错误：{str(e)}")
+
+if __name__ == "__main__":
+    main()
